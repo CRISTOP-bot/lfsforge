@@ -1,0 +1,14 @@
+# Copia a ~/.local/state/lfsforge/config/build.yml y ajusta la versión.
+lfs_version: "12.x"
+architecture: x86_64
+lfs_root: /mnt/lfs
+jobs: 8
+profile: developer
+bootloader:
+  enabled: false
+  type: grub
+kernel:
+  enabled: false
+qemu:
+  enabled: false
+sources_dir: ~/.cache/lfsforge/sources
