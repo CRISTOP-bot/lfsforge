@@ -1,0 +1,1 @@
+environment_prepare(){ mkdir -p "$CFG_LFS_ROOT" "$CFG_LFS_ROOT"/{sources,build,tools}; [[ -w "$CFG_LFS_ROOT" ]] || { error "No se puede escribir en $CFG_LFS_ROOT (no se modifica nada automáticamente)"; return 1; }; info "Preparado árbol de trabajo en $CFG_LFS_ROOT"; }
