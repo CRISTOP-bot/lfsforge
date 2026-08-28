@@ -1,0 +1,1 @@
+validate_system(){ local r="$CFG_LFS_ROOT" fail=0; for p in "$r" "$r/tools"; do [[ -d "$p" ]] && printf '✓ %s\n' "$p" || { printf '✗ %s\n' "$p"; fail=1; }; done; [[ -f "$r/etc/passwd" ]] && printf '✓ passwd\n' || printf '· passwd (aún no construido)\n'; ((fail==0)); }
