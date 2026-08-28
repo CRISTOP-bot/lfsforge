@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export LFSFORGE_ROOT="$ROOT_DIR"
+source "$ROOT_DIR/lib/utils.sh"
+source "$ROOT_DIR/lib/config.sh"
+source "$ROOT_DIR/lib/logging.sh"
+source "$ROOT_DIR/lib/state.sh"
+source "$ROOT_DIR/lib/checks.sh"
+source "$ROOT_DIR/lib/sources.sh"
+source "$ROOT_DIR/lib/tui.sh"
+source "$ROOT_DIR/stages/environment.sh"
+source "$ROOT_DIR/stages/toolchain.sh"
+source "$ROOT_DIR/stages/kernel.sh"
+source "$ROOT_DIR/stages/grub.sh"
+source "$ROOT_DIR/stages/validate.sh"
+
+cmd_help(){ cat <<'HELP'
+LFSForge - guided, inspectable Linux From Scratch builder
+Usage: lfsforge [--root DIR] <command> [options]
+Commands: check configure sources build status resume logs shell validate qemu clean
+Options: build --config FILE | --stage NAME, sources [--config FILE], --no-color
+HELP
+}
+load_project(){ config_init; [[ -f "${CONFIG_FILE:-}" ]] && config_load "$CONFIG_FILE"; state_init; log_init; }
+run_stage(){ local n="$1"; shift; stage_start "$n"; if "$@" 2>&1 | tee -a "$(stage_log "$n")"; then stage_done "$n"; else stage_fail "$n"; return 1; fi; }
+cmd_check(){ load_project; run_stage host host_validate; }
+cmd_configure(){ load_project; tui_wizard; config_save "$CONFIG_FILE"; printf 'Configuración guardada en %s\n' "$CONFIG_FILE"; }
+cmd_sources(){ load_project; run_stage sources sources_fetch; }
+cmd_build(){ load_project; local only=''; while (($#)); do case "$1" in --config) config_load "$2"; shift 2;; --stage) only="$2"; shift 2;; *) die "opción desconocida: $1";; esac; done
+  local stages=(host environment sources toolchain); [[ "${CFG_KERNEL_ENABLED:-false}" == true ]] && stages+=(kernel); [[ "${CFG_BOOTLOADER_ENABLED:-false}" == true ]] && stages+=(grub); stages+=(validate)
+  for s in "${stages[@]}"; do [[ -n "$only" && "$s" != "$only" ]] && continue; stage_done_already "$s" && { info "Omitiendo $s (checkpoint exitoso)"; continue; }; case "$s" in host) run_stage host host_validate;; environment) run_stage environment environment_prepare;; sources) run_stage sources sources_fetch;; toolchain) run_stage toolchain toolchain_prepare;; kernel) run_stage kernel kernel_prepare;; grub) run_stage grub grub_prepare;; validate) run_stage validate validate_system;; esac || { error "Build detenido en: $s"; return 1; }; done; state_report; }
+cmd_status(){ load_project; state_report; }
+cmd_resume(){ cmd_build "$@"; }
+cmd_logs(){ load_project; find "$STATE_DIR/logs" -type f -maxdepth 1 -print -exec sh -c 'echo "--- $1"; tail -n 20 "$1"' _ {} \; 2>/dev/null || true; }
+cmd_shell(){ load_project; require_root_for_mounts; [[ -d "$LFS_ROOT" ]] || die "No existe LFS_ROOT: $LFS_ROOT"; info "Shell de inspección. No se montan sistemas automáticamente en este MVP."; sudo chroot "$LFS_ROOT" /usr/bin/env -i HOME=/root TERM="${TERM:-linux}" PATH=/usr/bin:/usr/sbin:/bin:/sbin /bin/bash --login || true; }
+cmd_validate(){ load_project; run_stage validate validate_system; }
+cmd_qemu(){ load_project; warn "QEMU está diseñado como extensión; aún no se inicia ninguna imagen automáticamente."; command -v qemu-system-x86_64 >/dev/null && info 'QEMU detectado' || warn 'QEMU no detectado'; }
+cmd_clean(){ load_project; require_confirm "Borrar cache y logs de LFSForge en $STATE_DIR"; rm -rf -- "$STATE_DIR/cache" "$STATE_DIR/logs"; mkdir -p "$STATE_DIR"/{cache,logs}; info 'Limpieza completada'; }
+main(){ [[ "${1:-}" == --no-color ]] && { COLOR=0; shift; }; [[ "${1:-}" == --root ]] && { export LFSFORGE_ROOT="$2"; shift 2; }; case "${1:-tui}" in ''|tui) load_project; tui_main;; help|-h|--help) cmd_help;; check) shift; cmd_check "$@";; configure) shift; cmd_configure "$@";; sources) shift; cmd_sources "$@";; build) shift; cmd_build "$@";; status) shift; cmd_status "$@";; resume) shift; cmd_resume "$@";; logs) shift; cmd_logs "$@";; shell) shift; cmd_shell "$@";; validate) shift; cmd_validate "$@";; qemu) shift; cmd_qemu "$@";; clean) shift; cmd_clean "$@";; *) die "Comando desconocido: $1 (usa help)";; esac; }
+main "$@"
